@@ -19,7 +19,7 @@ $ npm run start
 $ npm run start:dev
 
 # docker run
-$ docker:dev
+$ npm run docker:dev
 ```
 
 ## Test
