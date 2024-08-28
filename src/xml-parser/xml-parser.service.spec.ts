@@ -1,125 +1,138 @@
+import { Test, TestingModule } from '@nestjs/testing';
 import { XmlParserService } from './xml-parser.service';
-import fetchMock from 'jest-fetch-mock';
+import { MakeDto } from './dto/make.dto';
+import fetch from 'node-fetch';
 
-fetchMock.enableMocks();
+jest.mock('node-fetch');
+const { Response } = jest.requireActual('node-fetch');
 
 describe('XmlParserService', () => {
   let service: XmlParserService;
 
-  beforeEach(() => {
-    service = new XmlParserService();
-    fetchMock.resetMocks();
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [XmlParserService],
+    }).compile();
+
+    service = module.get<XmlParserService>(XmlParserService);
   });
 
-  it('should return a list of MakeDto with vehicle types', async () => {
-    // Mock successful response for fetching makes
-    const mockMakesXml = `
+  it('should fetch and parse vehicle data successfully (happy path)', async () => {
+    const xmlMakeResponse = `
       <Response>
         <Results>
           <AllVehicleMakes>
-            <Make_ID>1</Make_ID>
-            <Make_Name>Make 1</Make_Name>
-          </AllVehicleMakes>
-          <AllVehicleMakes>
-            <Make_ID>2</Make_ID>
-            <Make_Name>Make 2</Make_Name>
+            <Make_ID>440</Make_ID>
+            <Make_Name>ASTON MARTIN</Make_Name>
           </AllVehicleMakes>
         </Results>
       </Response>`;
 
-    const mockVehicleTypesXml = `
-  <Response>
-    <Results>
-      <VehicleTypes>
-        <VehicleType>
-          <Type_ID>1</Type_ID>
-          <Type_Name>Car</Type_Name>
-        </VehicleType>
-        <VehicleType>
-          <Type_ID>2</Type_ID>
-          <Type_Name>Truck</Type_Name>
-        </VehicleType>
-      </VehicleTypes>
-    </Results>
-  </Response>`;
+    const xmlVehicleTypeResponse = `
+      <Response>
+        <Results>
+          <VehicleTypesForMakeIds>
+            <VehicleTypeId>2</VehicleTypeId>
+            <VehicleTypeName>Passenger Car</VehicleTypeName>
+          </VehicleTypesForMakeIds>
+        </Results>
+      </Response>`;
 
-    fetchMock.mockResponses(
-      [mockMakesXml, { status: 200 }],
-      [mockVehicleTypesXml, { status: 200 }], // mockVehicleTypesXml needs to be defined
+    // Mocking the fetch responses
+    (fetch as jest.MockedFunction<typeof fetch>).mockImplementation(
+      (url: string) => {
+        if (url.includes('getallmakes')) {
+          return Promise.resolve(new Response(xmlMakeResponse));
+        } else if (url.includes('GetVehicleTypesForMakeId/440')) {
+          return Promise.resolve(new Response(xmlVehicleTypeResponse));
+        }
+        return Promise.reject(new Error('Unexpected URL'));
+      },
     );
 
+    const expected: MakeDto[] = [
+      {
+        makeId: '440',
+        makeName: 'ASTON MARTIN',
+        vehicleTypes: [
+          {
+            typeId: '2',
+            typeName: 'Passenger Car',
+          },
+        ],
+      },
+    ];
+
     const result = await service.fetchAndParseVehicleData();
-    expect(result).toEqual([
-      {
-        makeId: '1',
-        makeName: 'Make 1',
-        vehicleTypes: [{ typeId: '1', typeName: 'Car' }],
-      },
-      {
-        makeId: '2',
-        makeName: 'Make 2',
-        vehicleTypes: [{ typeId: '2', typeName: 'Truck' }],
-      },
-    ]);
+    expect(result).toEqual(expected);
   });
 
-  it('should handle cases where no vehicle types are returned', async () => {
-    // Mock successful response for fetching makes
-    const mockMakesXml = `
+  it('should handle empty XML response gracefully (edge case)', async () => {
+    const xmlMakeResponse = `
+      <Response>
+        <Results>
+          <AllVehicleMakes />
+        </Results>
+      </Response>`;
+
+    // Mocking the fetch responses
+    (fetch as jest.MockedFunction<typeof fetch>).mockImplementation(() => {
+      return Promise.resolve(new Response(xmlMakeResponse));
+    });
+
+    const result = await service.fetchAndParseVehicleData();
+    expect(result).toEqual([]); // Expect an empty array when there are no makes
+  });
+
+  it('should handle missing vehicle type data gracefully (edge case)', async () => {
+    const xmlMakeResponse = `
       <Response>
         <Results>
           <AllVehicleMakes>
-            <Make_ID>1</Make_ID>
-            <Make_Name>Make 1</Make_Name>
+            <Make_ID>440</Make_ID>
+            <Make_Name>ASTON MARTIN</Make_Name>
           </AllVehicleMakes>
         </Results>
       </Response>`;
 
-    fetchMock.mockResponses(
-      [mockMakesXml, { status: 200 }],
-      ['', { status: 200 }], // Simulate no vehicle types
+    const xmlVehicleTypeResponse = `
+      <Response>
+        <Results>
+          <VehicleTypesForMakeIds />
+        </Results>
+      </Response>`;
+
+    // Mocking the fetch responses
+    (fetch as jest.MockedFunction<typeof fetch>).mockImplementation(
+      (url: string) => {
+        if (url.includes('getallmakes')) {
+          return Promise.resolve(new Response(xmlMakeResponse));
+        } else if (url.includes('GetVehicleTypesForMakeId/440')) {
+          return Promise.resolve(new Response(xmlVehicleTypeResponse));
+        }
+        return Promise.reject(new Error('Unexpected URL'));
+      },
     );
 
-    const result = await service.fetchAndParseVehicleData();
-    expect(result).toEqual([
+    const expected: MakeDto[] = [
       {
-        makeId: '1',
-        makeName: 'Make 1',
+        makeId: '440',
+        makeName: 'ASTON MARTIN',
         vehicleTypes: [],
       },
-    ]);
+    ];
+
+    const result = await service.fetchAndParseVehicleData();
+    expect(result).toEqual(expected);
   });
 
-  it('should handle cases where fetching makes fails', async () => {
-    fetchMock.mockRejectOnce(new Error('Failed to fetch makes'));
+  it('should throw an error when fetch fails', async () => {
+    (fetch as jest.MockedFunction<typeof fetch>).mockImplementation(() => {
+      return Promise.reject(new Error('Failed to fetch data'));
+    });
 
     await expect(service.fetchAndParseVehicleData()).rejects.toThrow(
-      'Failed to fetch data from https://vpic.nhtsa.dot.gov/api/vehicles/getallmakes?format=XML',
+      'Failed to fetch data',
     );
-  });
-
-  it('should handle cases where fetching vehicle types fails', async () => {
-    const mockMakesXml = `
-      <Response>
-        <Results>
-          <AllVehicleMakes>
-            <Make_ID>1</Make_ID>
-            <Make_Name>Make 1</Make_Name>
-          </AllVehicleMakes>
-        </Results>
-      </Response>`;
-
-    fetchMock.mockResponses(
-      [mockMakesXml, { status: 200 }],
-      ['', { status: 500 }], // Simulate vehicle types fetch error
-    );
-
-    await expect(service.fetchAndParseVehicleData()).resolves.toEqual([
-      {
-        makeId: '1',
-        makeName: 'Make 1',
-        vehicleTypes: [],
-      },
-    ]);
   });
 });

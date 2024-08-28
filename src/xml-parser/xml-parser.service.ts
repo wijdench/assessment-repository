@@ -11,8 +11,7 @@ export class XmlParserService {
   private readonly xmlParser: XMLParser;
 
   constructor() {
-    this.apiUrl =
-      process.env.API_URL || 'https://vpic.nhtsa.dot.gov/api/vehicles';
+    this.apiUrl = process.env.API_URL;
     this.xmlParser = new XMLParser({
       ignoreAttributes: false,
       attributeNamePrefix: '',
@@ -56,7 +55,7 @@ export class XmlParserService {
   ): Promise<MakeDto[]> {
     const results = parsedData?.Response?.Results?.AllVehicleMakes;
 
-    if (!results) {
+    if (!results || !Array.isArray(results) || results.length === 0) {
       console.error('No results found in parsed data:', parsedData);
       return [];
     }
@@ -66,6 +65,10 @@ export class XmlParserService {
     const semaphore = new Sema(10); // Control concurrency
     const makesList = await Promise.all(
       makesArray.map(async (make) => {
+        if (!make.Make_ID || !make.Make_Name) {
+          return null;
+        }
+
         await semaphore.acquire();
         try {
           const vehicleType = await this.fetchVehicleTypes(
@@ -107,7 +110,7 @@ export class XmlParserService {
       }
 
       return {
-        typeId: vehicleType.VehicleTypeId,
+        typeId: String(vehicleType.VehicleTypeId),
         typeName: vehicleType.VehicleTypeName,
       } as VehicleTypeDto;
     } catch (error) {
