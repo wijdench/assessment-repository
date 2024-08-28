@@ -1,0 +1,18 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+type VehicleTypeDto {
+  typeId: String!
+  typeName: String!
+}
+
+type MakeDto {
+  makeId: String!
+  makeName: String!
+  vehicleTypes: [VehicleTypeDto!]!
+}
+
+type Query {
+  fetchVehicles(limit: Int): [MakeDto!]!
+}
